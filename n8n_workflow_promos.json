@@ -1,0 +1,243 @@
+{
+  "name": "PizzaLibre - Generador de Promociones",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generar-promos-pizzalibre",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook - Generar promos",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "generar-promos-pizzalibre"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"ok\": true, \"mensaje\": \"Promos generadas y guardadas en Supabase\" } }}",
+        "options": {}
+      },
+      "id": "8",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xrclymsgwfegtqlyuutb.supabase.co/rest/v1/rpc/resumen_para_promo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "options": {}
+      },
+      "id": "2",
+      "name": "Supabase - Obtener datos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst clima = data.clima_hoy;\nconst combos = data.combos_top || [];\nconst bajos = data.productos_bajos || [];\nconst clima_x_prod = data.efecto_clima || [];\nconst tendencia = data.tendencia_ultimas_semanas || [];\nconst instruccionExtra = data.instruccion_extra || '';\n\nconst climaTexto = `Hoy en Villa Carlos Paz: ${clima.descripcion}, temp ${clima.temp_min}°-${clima.temp_max}° (media ${clima.temp_media}°), lluvia: ${clima.lluvia_mm}mm.`;\n\nconst combosTexto = combos.slice(0, 5).map(c =>\n  `- ${c.producto_a} + ${c.producto_b}: salen juntos en el ${c.pct_ordenes}% de las órdenes (${c.veces_juntos} veces)`\n).join('\\n');\n\nconst bajosTexto = bajos.slice(0, 6).map(p =>\n  `- ${p.descripcion}: esta semana ${p.unidades_ultima_semana} unidades (promedio histórico ${p.promedio_semanal}, variación ${p.variacion_pct}%)`\n).join('\\n');\n\nconst rangoHoy = clima.temp_media < 10 ? 'frio' : clima.temp_media <= 18 ? 'fresco' : 'calor';\nconst lluviaHoy = clima.lluvia_mm > 1 ? 'lluvia' : 'sin_lluvia';\nconst efectoHoy = clima_x_prod\n  .filter(e => e.rango_temp === rangoHoy && e.condicion_lluvia === lluviaHoy)\n  .map(e => `- ${e.descripcion}: promedio ${e.promedio_unidades} unidades en días ${rangoHoy} con ${lluviaHoy}`)\n  .join('\\n');\n\nconst semanas = [...new Set(tendencia.map(t => t.semana))].sort().reverse();\nconst ultSemana = tendencia.filter(t => t.semana === semanas[0]);\nconst antSemana = tendencia.filter(t => t.semana === semanas[1]);\nconst tendenciaTexto = ultSemana.slice(0, 8).map(p => {\n  const ant = antSemana.find(a => a.descripcion === p.descripcion);\n  const var_pct = ant ? Math.round((p.unidades - ant.unidades) / ant.unidades * 100) : null;\n  return `- ${p.descripcion}: ${p.unidades} unidades${var_pct !== null ? ` (${var_pct > 0 ? '+' : ''}${var_pct}% vs semana anterior)` : ''}`;\n}).join('\\n');\n\nconst instruccionTexto = instruccionExtra\n  ? `**INSTRUCCIÓN ESPECIAL DEL DÍA:**\\n${instruccionExtra}\\n\\n`\n  : '';\n\nconst prompt = `Sos el encargado de marketing de PizzaLibre, una pizzería en Villa Carlos Paz, Argentina. Tu tarea es generar EXACTAMENTE 4 propuestas de promociones atractivas y DISTINTAS entre sí, basadas en los datos reales de ventas.\n\n${instruccionTexto}**CLIMA DE HOY:**\n${climaTexto}\n\n**COMBOS MÁS FRECUENTES (productos que los clientes piden juntos):**\n${combosTexto}\n\n**PRODUCTOS BAJOS ESTA SEMANA (candidatos a promocionar):**\n${bajosTexto}\n\n**EFECTO DEL CLIMA EN VENTAS DE HOY (condición: ${rangoHoy}, ${lluviaHoy.replace('_', ' ')}):**\n${efectoHoy}\n\n**TENDENCIA ÚLTIMA SEMANA:**\n${tendenciaTexto}\n\n**FORMATO DE RESPUESTA — MUY IMPORTANTE:**\nRespondé ÚNICAMENTE con un array JSON válido con exactamente 4 objetos. Sin texto antes ni después. Sin markdown. Solo el JSON.\n\n[\n  {\n    \"nombre\": \"Nombre creativo de la promo\",\n    \"productos\": \"Listado de productos incluidos\",\n    \"razon\": \"Por qué tiene sentido según los datos (1 línea)\",\n    \"beneficio\": \"Descuento o beneficio sugerido\"\n  }\n]\n\nCada promo debe combinar al menos 2 productos. Variá los enfoques: una basada en clima, una en combo frecuente, una en producto bajo, una creativa. Español rioplatense, tono comercial y amigable.`;\n\nreturn [{ json: { prompt, clima_hoy: climaTexto } }];"
+      },
+      "id": "3",
+      "name": "Preparar prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 1500,
+          "temperature": 0.7
+        }
+      },
+      "id": "4",
+      "name": "OpenAI - Generar promos",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [900, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openAiApi",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst raw = response.message?.content || response.choices?.[0]?.message?.content || '[]';\nconst clima = $('Preparar prompt').first().json.clima_hoy;\n\nlet promos;\ntry {\n  promos = JSON.parse(raw);\n} catch(e) {\n  const match = raw.match(/\\[.*\\]/s);\n  promos = match ? JSON.parse(match[0]) : [];\n}\n\nreturn promos.map(p => ({\n  json: {\n    nombre_promo: p.nombre,\n    productos: p.productos,\n    razon: p.razon,\n    beneficio: p.beneficio,\n    texto_promo: `**${p.nombre}**\\n\\nProductos: ${p.productos}\\n\\nPor qué: ${p.razon}\\n\\nBeneficio: ${p.beneficio}`,\n    clima_hoy: clima\n  }\n}));"
+      },
+      "id": "5",
+      "name": "Separar en 4 items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xrclymsgwfegtqlyuutb.supabase.co/rest/v1/promociones",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"texto_promo\": {{ JSON.stringify($json.texto_promo) }},\n  \"nombre_promo\": {{ JSON.stringify($json.nombre_promo) }},\n  \"productos\": {{ JSON.stringify($json.productos) }},\n  \"razon\": {{ JSON.stringify($json.razon) }},\n  \"beneficio\": {{ JSON.stringify($json.beneficio) }},\n  \"clima_dia\": {{ JSON.stringify($json.clima_hoy) }},\n  \"estado\": \"pendiente\"\n}",
+        "options": {}
+      },
+      "id": "7",
+      "name": "Supabase - Guardar promo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "content": "## ✅ 4 promos guardadas en Supabase\nUna fila por promo, estado: **pendiente**\n\nPara dirigir el prompt del día:\n→ Editá `instruccion_extra` en la tabla `config_promo`\n\nEjemplos:\n- \"Tenemos exceso de Quilmes Negra\"\n- \"Promo para grupos grandes, fin de semana largo\"\n- \"Evitar promos con alcohol\"",
+        "height": 260,
+        "width": 360
+      },
+      "id": "6",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1340, 60]
+    }
+  ],
+  "connections": {
+    "Webhook - Generar promos": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Obtener datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Obtener datos": {
+      "main": [
+        [
+          {
+            "node": "Preparar prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generar promos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Generar promos": {
+      "main": [
+        [
+          {
+            "node": "Separar en 4 items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar en 4 items": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Guardar promo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Guardar promo": {
+      "main": [
+        [
+          {
+            "node": "Responder OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-29T00:00:00.000Z",
+  "versionId": "1"
+}

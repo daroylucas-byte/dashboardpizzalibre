@@ -1,0 +1,346 @@
+{
+  "name": "PizzaLibre - Generar Imagen para Promo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generar-imagen-promo",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook - Generar imagen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "generar-imagen-promo"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst promo_id = body.promo_id;\nif (!promo_id) throw new Error('Falta promo_id en el body');\nreturn [{ json: { promo_id } }];"
+      },
+      "id": "2",
+      "name": "Extraer promo_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://xrclymsgwfegtqlyuutb.supabase.co/rest/v1/promociones?id=eq.{{ $json.promo_id }}&select=id,nombre_promo,productos,razon,beneficio,clima_dia",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3",
+      "name": "Supabase - Buscar promo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const promo = $input.first().json;\nif (!promo || !promo.id) throw new Error('Promo no encontrada');\n\nconst { id, nombre_promo, productos, razon, beneficio, clima_dia } = promo;\n\nconst imagePrompt = `Professional food photography for a pizzeria promotion poster in Argentina.\nPromotion: \"${nombre_promo}\".\nProducts: ${productos}.\nOffer: ${beneficio}.\nContext: ${razon}.\nWeather today: ${clima_dia || ''}.\nStyle: warm restaurant lighting, rustic wooden table, appetizing close-up of pizza with melted mozzarella and colorful toppings, cold beverage bottle with condensation droplets beside it, bokeh background.\nMood: inviting, commercial, vibrant colors. Square format. No text overlays. No people.`;\n\nreturn [{ json: { promo_id: id, imagePrompt, nombre_promo } }];"
+      },
+      "id": "4",
+      "name": "Preparar prompt de imagen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=TU_GEMINI_API_KEY_ACA",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        { \"text\": {{ JSON.stringify($json.imagePrompt) }} }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"responseModalities\": [\"IMAGE\", \"TEXT\"],\n    \"responseMimeType\": \"text/plain\"\n  }\n}",
+        "options": {}
+      },
+      "id": "5",
+      "name": "Gemini Imagen 3 - Generar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst promo_id = $('Preparar prompt de imagen').first().json.promo_id;\n\nconst parts = response.candidates?.[0]?.content?.parts || [];\nconst imagePart = parts.find(p => p.inlineData?.mimeType?.startsWith('image/'));\n\nif (!imagePart) throw new Error('Gemini no devolvió imagen: ' + JSON.stringify(response));\n\nconst base64 = imagePart.inlineData.data;\nconst mimeType = imagePart.inlineData.mimeType || 'image/png';\nconst filename = `promo_${promo_id}_${Date.now()}.png`;\n\n// Convertir base64 a binario para que n8n lo trate como archivo\nconst binaryData = Buffer.from(base64, 'base64');\n\nreturn [{\n  json: { promo_id, filename },\n  binary: {\n    data: {\n      data: binaryData.toString('base64'),\n      mimeType,\n      fileName: filename,\n      fileSize: binaryData.length\n    }\n  }\n}];"
+      },
+      "id": "6",
+      "name": "Extraer imagen base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://xrclymsgwfegtqlyuutb.supabase.co/storage/v1/object/promo-imagenes/{{ $json.filename }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Content-Type",
+              "value": "image/png"
+            },
+            {
+              "name": "x-upsert",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "id": "7",
+      "name": "Supabase Storage - Subir imagen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const filename = $('Extraer imagen base64').first().json.filename;\nconst promo_id = $('Extraer imagen base64').first().json.promo_id;\nconst imagen_url = `https://xrclymsgwfegtqlyuutb.supabase.co/storage/v1/object/public/promo-imagenes/${filename}`;\nreturn [{ json: { promo_id, imagen_url } }];"
+      },
+      "id": "8",
+      "name": "Construir URL pública",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://xrclymsgwfegtqlyuutb.supabase.co/rest/v1/promociones?id=eq.{{ $json.promo_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyY2x5bXNnd2ZlZ3RxbHl1dXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgyMjUwODEsImV4cCI6MjA2MzgwMTA4MX0.N5CpC3yMzTMMjvo1Bu0d-kijhYAe14XV2zV9zny6_vM"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"imagen_url\": {{ JSON.stringify($json.imagen_url) }}\n}",
+        "options": {}
+      },
+      "id": "9",
+      "name": "Supabase - Guardar imagen_url",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"ok\": true, \"imagen_url\": $('Construir URL pública').first().json.imagen_url } }}",
+        "options": {}
+      },
+      "id": "10",
+      "name": "Responder con URL",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 2: Generar imagen para una promo\n\n**Recibe por POST (solo el ID):**\n```json\n{ \"promo_id\": \"uuid-de-la-promo\" }\n```\n\n**Busca en Supabase:** nombre, productos, razón, beneficio, clima\n**Genera:** imagen con Gemini Imagen 3\n**Sube:** a Supabase Storage (bucket: promo-imagenes)\n**Actualiza:** imagen_url en la tabla promociones\n\n**Devuelve:**\n```json\n{ \"ok\": true, \"imagen_url\": \"https://...\" }\n```\n\n⚠️ Antes de activar:\n1. Reemplazá TU_GEMINI_API_KEY_ACA en el nodo de Gemini\n2. El bucket promo-imagenes ya fue creado",
+        "height": 320,
+        "width": 420
+      },
+      "id": "11",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Generar imagen": {
+      "main": [
+        [
+          {
+            "node": "Extraer promo_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer promo_id": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Buscar promo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Buscar promo": {
+      "main": [
+        [
+          {
+            "node": "Preparar prompt de imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar prompt de imagen": {
+      "main": [
+        [
+          {
+            "node": "Gemini Imagen 3 - Generar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Imagen 3 - Generar": {
+      "main": [
+        [
+          {
+            "node": "Extraer imagen base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer imagen base64": {
+      "main": [
+        [
+          {
+            "node": "Supabase Storage - Subir imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Storage - Subir imagen": {
+      "main": [
+        [
+          {
+            "node": "Construir URL pública",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir URL pública": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Guardar imagen_url",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Guardar imagen_url": {
+      "main": [
+        [
+          {
+            "node": "Responder con URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-29T00:00:00.000Z",
+  "versionId": "1"
+}
