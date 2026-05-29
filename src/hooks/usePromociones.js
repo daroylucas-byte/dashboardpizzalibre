@@ -159,7 +159,8 @@ export function usePromociones() {
 
   const generarImagen = async (promoId) => {
     try {
-      const response = await fetch('https://n8n.srv1055314.hstgr.cloud/webhook/generar-imagen-promo', {
+      const webhookUrl = import.meta.env.VITE_N8N_IMAGE_WEBHOOK_URL || 'https://n8n.srv1055314.hstgr.cloud/webhook/generar-imagen-promo'
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ promo_id: promoId })
